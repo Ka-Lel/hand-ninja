@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Ninja - Fixed</title>
-    
+    <title>Hand Ninja - Selfie Cam Edition</title>
+
     <!-- MediaPipe Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
@@ -21,7 +21,7 @@
 
         * {
             box-sizing: border-box;
-            touch-action: none; /* Critical for mobile gaming */
+            touch-action: none;
             user-select: none;
             -webkit-user-select: none;
         }
@@ -33,11 +33,9 @@
             background-color: var(--dark);
             font-family: var(--ui-font);
             color: white;
-            /* Ensure we don't pull to refresh on mobile */
-            overscroll-behavior: none; 
+            overscroll-behavior: none;
         }
 
-        /* Canvas covers the whole screen */
         #gameCanvas {
             position: absolute;
             top: 0;
@@ -47,19 +45,15 @@
             z-index: 1;
         }
 
-        /* Hidden video element */
         #inputVideo {
             position: absolute;
             top: 0;
             left: 0;
-            width: 320px;
-            height: 240px;
             opacity: 0;
-            z-index: -1;
             pointer-events: none;
+            z-index: -1;
         }
 
-        /* UI Overlay Layer */
         #uiLayer {
             position: absolute;
             top: 0;
@@ -73,7 +67,6 @@
             justify-content: space-between;
         }
 
-        /* HUD */
         .hud {
             display: flex;
             justify-content: space-between;
@@ -86,7 +79,6 @@
         .score-box { color: var(--primary); }
         .lives-box { color: var(--danger); }
 
-        /* Screens (Start, Game Over, Loading) */
         .screen {
             position: absolute;
             top: 0;
@@ -107,7 +99,7 @@
         .hidden {
             opacity: 0;
             pointer-events: none !important;
-            display: none; /* Fully hide to prevent clicks */
+            display: none;
         }
 
         h1 {
@@ -174,13 +166,10 @@
 </head>
 <body>
 
-    <!-- Video for Processing -->
     <video id="inputVideo" playsinline></video>
 
-    <!-- Game Canvas -->
     <canvas id="gameCanvas"></canvas>
 
-    <!-- UI Overlay -->
     <div id="uiLayer">
         <div class="hud">
             <div class="score-box">Score: <span id="scoreVal">0</span></div>
@@ -195,7 +184,7 @@
         <p>🍉 +1 Point | ❤️ +1 Life | 💣 Game Over</p>
         <div class="spinner" id="loadingSpinner"></div>
         <button id="startBtn" class="btn" disabled>Loading Camera...</button>
-        <p style="font-size: 14px; margin-top:20px; opacity:0.7">Allow camera access to play</p>
+        <p style="font-size: 14px; margin-top:20px; opacity:0.7">Allow camera access • Good lighting • Hold phone steady</p>
     </div>
 
     <!-- Game Over Screen -->
@@ -207,7 +196,7 @@
 
     <script>
         const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize for no transparency
+        const ctx = canvas.getContext('2d', { alpha: false });
         const videoElement = document.getElementById('inputVideo');
 
         const startScreen = document.getElementById('startScreen');
@@ -234,8 +223,8 @@
         let handDetected = false;
 
         const GRAVITY = 0.25;
-        const BLADE_LIFETIME = 12; 
-        
+        const BLADE_LIFETIME = 15; // a bit longer trail
+
         const FRUIT_TYPES = [
             { emoji: '🍉', color: '#ff5555', score: 1 },
             { emoji: '🍊', color: '#ffaa00', score: 1 },
@@ -244,8 +233,7 @@
             { emoji: '🍍', color: '#ffffaa', score: 2 }
         ];
 
-        // --- Core Functions ---
-
+        // Helpers
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -258,11 +246,11 @@
                 this.r = 40;
                 this.x = Math.random() * (canvas.width - 100) + 50;
                 this.y = canvas.height + this.r;
-                
+
                 const velocityYBase = -(Math.random() * 5 + 10 + (difficultyMultiplier * 1.5));
-                this.vx = (Math.random() - 0.5) * 4; 
+                this.vx = (Math.random() - 0.5) * 4;
                 this.vy = velocityYBase;
-                
+
                 this.rotation = Math.random() * Math.PI * 2;
                 this.rotationSpeed = (Math.random() - 0.5) * 0.2;
                 this.active = true;
@@ -367,6 +355,7 @@
             gameOverScreen.classList.remove('hidden');
         }
 
+        // Distance from point p to line segment v-w
         function distToSegment(p, v, w) {
             const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
             if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
@@ -408,7 +397,6 @@
 
         function resetGame() {
             try {
-                // Reset state
                 score = 0;
                 lives = 3;
                 difficultyMultiplier = 0;
@@ -417,20 +405,21 @@
                 fruits = [];
                 particles = [];
                 bladeTrail = [];
-                
-                // Ensure canvas is sized correctly
+                handDetected = false;
+
                 resizeCanvas();
 
                 isPlaying = true;
                 gameOverScreen.classList.add('hidden');
                 startScreen.classList.add('hidden');
-                
-                // Spawn one immediately so user sees it works
+
+                // spawn one fruit immediately so you see something happening
                 spawnFruit();
-                
+
                 animate();
             } catch (err) {
                 alert("Error starting game: " + err.message);
+                console.error(err);
             }
         }
 
@@ -441,38 +430,59 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 // Background
-                const gradient = ctx.createRadialGradient(canvas.width/2, canvas.height, 100, canvas.width/2, canvas.height/2, canvas.width);
+                const gradient = ctx.createRadialGradient(
+                    canvas.width / 2, canvas.height, 100,
+                    canvas.width / 2, canvas.height / 2, canvas.width
+                );
                 gradient.addColorStop(0, '#2a2a2a');
                 gradient.addColorStop(1, '#000000');
                 ctx.fillStyle = gradient;
-                ctx.fillRect(0,0, canvas.width, canvas.height);
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                // Blade Logic
+                // Blade trail
                 if (handDetected) {
                     bladeTrail.push({x: handX, y: handY});
-                    if (bladeTrail.length > BLADE_LIFETIME) bladeTrail.shift();
+                    if (bladeTrail.length > BLADE_LIFETIME) {
+                        bladeTrail.shift();
+                    }
                 }
 
                 if (bladeTrail.length > 1) {
                     ctx.lineCap = 'round';
                     ctx.lineJoin = 'round';
-                    ctx.shadowBlur = 15;
+                    ctx.shadowBlur = 20;
                     ctx.shadowColor = '#00ffff';
-                    
+
                     for (let i = 0; i < bladeTrail.length - 1; i++) {
                         const point = bladeTrail[i];
-                        const nextPoint = bladeTrail[i+1];
-                        ctx.lineWidth = (i / bladeTrail.length) * 15;
-                        ctx.strokeStyle = `rgba(0, 255, 255, ${i / bladeTrail.length})`;
+                        const nextPoint = bladeTrail[i + 1];
+                        const progress = i / bladeTrail.length;
+
+                        const lineWidth = 8 + 16 * progress; // thicker overall
+                        ctx.lineWidth = lineWidth;
+
+                        ctx.strokeStyle = `rgba(0, 255, 255, ${0.4 + 0.6 * progress})`;
                         ctx.beginPath();
                         ctx.moveTo(point.x, point.y);
                         ctx.lineTo(nextPoint.x, nextPoint.y);
                         ctx.stroke();
                     }
+
                     ctx.shadowBlur = 0;
                 }
 
-                // Spawn Logic
+                // Debug circle: always show where we think the index finger tip is
+                if (handDetected) {
+                    ctx.beginPath();
+                    ctx.arc(handX, handY, 12, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ff00ff';
+                    ctx.fill();
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                // Spawn logic
                 gameTime++;
                 if (gameTime % Math.max(20, Math.floor(60 - difficultyMultiplier * 5)) === 0) {
                     spawnFruit();
@@ -481,7 +491,7 @@
 
                 checkSlicing();
 
-                // Update Entities
+                // Fruits
                 for (let i = fruits.length - 1; i >= 0; i--) {
                     const f = fruits[i];
                     f.update();
@@ -489,6 +499,7 @@
                     if (!f.active) fruits.splice(i, 1);
                 }
 
+                // Particles
                 for (let i = particles.length - 1; i >= 0; i--) {
                     const p = particles[i];
                     p.update();
@@ -499,12 +510,15 @@
                 requestAnimationFrame(animate);
             } catch (err) {
                 isPlaying = false;
-                alert("Game Crashed: " + err.message);
+                alert("Game loop error: " + err.message);
                 console.error(err);
             }
         }
 
-        // --- MediaPipe Setup ---
+        // MediaPipe setup
+        let videoWidth = 640;
+        let videoHeight = 480;
+
         function onResults(results) {
             if (startBtn.disabled) {
                 startBtn.disabled = false;
@@ -515,12 +529,23 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 handDetected = true;
                 const landmarks = results.multiHandLandmarks[0];
-                const indexTip = landmarks[8];
-                handX = (1 - indexTip.x) * canvas.width; 
-                handY = indexTip.y * canvas.height;
+                const indexTip = landmarks[8]; // confirmed index fingertip【turn1search1】
+
+                // Update stored video size from results if needed
+                if (results.image) {
+                    videoWidth = results.image.width || videoWidth;
+                    videoHeight = results.image.height || videoHeight;
+                }
+
+                // Mirror X for front camera feel
+                const nx = 1 - indexTip.x;
+                const ny = indexTip.y;
+
+                handX = nx * canvas.width;
+                handY = ny * canvas.height;
             } else {
                 handDetected = false;
-                if (bladeTrail.length > 0) bladeTrail.shift(); 
+                if (bladeTrail.length > 0) bladeTrail.shift();
             }
         }
 
@@ -537,12 +562,13 @@
 
         hands.onResults(onResults);
 
+        // Force selfie/front camera, small resolution
         const camera = new Camera(videoElement, {
             onFrame: async () => {
                 await hands.send({image: videoElement});
             },
-            width: 320,
-            height: 240
+            width: 640,
+            height: 480
         });
 
         camera.start()
@@ -550,13 +576,15 @@
             .catch(err => {
                 console.error(err);
                 startBtn.innerText = "Camera Error";
-                alert("Camera access denied or error. Please refresh and allow camera.");
+                alert(
+                    "Camera error:\n" + err.name + "\n" + err.message +
+                    "\n\nMake sure you are using HTTPS and allow camera."
+                );
             });
 
-        // --- Event Listeners ---
-        // Use pointerdown for faster mobile response than click
+        // Event listeners
         startBtn.addEventListener('pointerdown', (e) => {
-            e.preventDefault(); // prevent mouse emulation
+            e.preventDefault();
             resetGame();
         });
 
