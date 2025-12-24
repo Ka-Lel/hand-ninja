@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hand Ninja - Fixed</title>
+    
+    <!-- MediaPipe Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --primary: #ffcc00;
+            --danger: #ff4444;
+            --dark: #1a1a1a;
+            --ui-font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            touch-action: none; /* Critical for mobile gaming */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--dark);
+            font-family: var(--ui-font);
+            color: white;
+            /* Ensure we don't pull to refresh on mobile */
+            overscroll-behavior: none; 
+        }
+
+        /* Canvas covers the whole screen */
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Hidden video element */
+        #inputVideo {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 320px;
+            height: 240px;
+            opacity: 0;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* UI Overlay Layer */
+        #uiLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* HUD */
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .score-box { color: var(--primary); }
+        .lives-box { color: var(--danger); }
+
+        /* Screens (Start, Game Over, Loading) */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            backdrop-filter: blur(5px);
+            transition: opacity 0.3s;
+            z-index: 20;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none !important;
+            display: none; /* Fully hide to prevent clicks */
+        }
+
+        h1 {
+            font-size: 42px;
+            color: var(--primary);
+            margin-bottom: 10px;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(255, 204, 0, 0.5);
+            padding: 0 20px;
+        }
+
+        p {
+            font-size: 18px;
+            color: #ddd;
+            text-align: center;
+            max-width: 80%;
+            line-height: 1.5;
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            background: linear-gradient(to bottom, #ffcc00, #ffaa00);
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #000;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 170, 0, 0.4);
+            transition: transform 0.1s;
+            touch-action: manipulation;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+            background: #ffaa00;
+        }
+
+        .btn:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Video for Processing -->
+    <video id="inputVideo" playsinline></video>
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Overlay -->
+    <div id="uiLayer">
+        <div class="hud">
+            <div class="score-box">Score: <span id="scoreVal">0</span></div>
+            <div class="lives-box">Lives: <span id="livesVal">3</span></div>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="startScreen" class="screen">
+        <h1>Hand Ninja</h1>
+        <p>Point your index finger to slice!</p>
+        <p>🍉 +1 Point | ❤️ +1 Life | 💣 Game Over</p>
+        <div class="spinner" id="loadingSpinner"></div>
+        <button id="startBtn" class="btn" disabled>Loading Camera...</button>
+        <p style="font-size: 14px; margin-top:20px; opacity:0.7">Allow camera access to play</p>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen" class="screen hidden">
+        <h1>Game Over</h1>
+        <p>Final Score: <span id="finalScore">0</span></p>
+        <button id="restartBtn" class="btn">Play Again</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize for no transparency
+        const videoElement = document.getElementById('inputVideo');
+
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const startBtn = document.getElementById('startBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const scoreEl = document.getElementById('scoreVal');
+        const livesEl = document.getElementById('livesVal');
+        const finalScoreEl = document.getElementById('finalScore');
+
+        let isPlaying = false;
+        let score = 0;
+        let lives = 3;
+        let gameTime = 0;
+        let difficultyMultiplier = 0;
+
+        let fruits = [];
+        let particles = [];
+        let bladeTrail = [];
+
+        let handX = 0;
+        let handY = 0;
+        let handDetected = false;
+
+        const GRAVITY = 0.25;
+        const BLADE_LIFETIME = 12; 
+        
+        const FRUIT_TYPES = [
+            { emoji: '🍉', color: '#ff5555', score: 1 },
+            { emoji: '🍊', color: '#ffaa00', score: 1 },
+            { emoji: '🍌', color: '#ffff00', score: 1 },
+            { emoji: '🥥', color: '#eeeeee', score: 2 },
+            { emoji: '🍍', color: '#ffffaa', score: 2 }
+        ];
+
+        // --- Core Functions ---
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        class Fruit {
+            constructor() {
+                this.r = 40;
+                this.x = Math.random() * (canvas.width - 100) + 50;
+                this.y = canvas.height + this.r;
+                
+                const velocityYBase = -(Math.random() * 5 + 10 + (difficultyMultiplier * 1.5));
+                this.vx = (Math.random() - 0.5) * 4; 
+                this.vy = velocityYBase;
+                
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.2;
+                this.active = true;
+                this.sliced = false;
+
+                const rand = Math.random();
+                if (rand < 0.05) {
+                    this.type = 'heart';
+                    this.emoji = '❤️';
+                    this.color = '#ff0000';
+                } else if (rand < 0.15) {
+                    this.type = 'bomb';
+                    this.emoji = '💣';
+                    this.color = '#333';
+                } else {
+                    this.type = 'fruit';
+                    const def = FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+                    this.emoji = def.emoji;
+                    this.color = def.color;
+                    this.scoreValue = def.score;
+                }
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += GRAVITY;
+                this.rotation += this.rotationSpeed;
+
+                if (this.y > canvas.height + this.r + 50) {
+                    this.active = false;
+                    if (this.type === 'fruit' && !this.sliced && isPlaying) {
+                        loseLife();
+                    }
+                }
+            }
+
+            draw(ctx) {
+                if (!this.active) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.font = `${this.r * 2}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.emoji, 0, 0);
+                ctx.restore();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 10;
+                this.vy = (Math.random() - 0.5) * 10;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.03 + 0.01;
+                this.color = color;
+                this.size = Math.random() * 6 + 3;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += GRAVITY * 0.5;
+                this.life -= this.decay;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        function spawnFruit() {
+            fruits.push(new Fruit());
+        }
+
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 12; i++) {
+                particles.push(new Particle(x, y, color));
+            }
+        }
+
+        function loseLife() {
+            lives--;
+            livesEl.innerText = lives;
+            if (lives <= 0) {
+                endGame();
+            }
+        }
+
+        function endGame() {
+            isPlaying = false;
+            finalScoreEl.innerText = score;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        function distToSegment(p, v, w) {
+            const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
+            if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+        }
+
+        function checkSlicing() {
+            if (bladeTrail.length < 2 || !handDetected) return;
+            const p1 = bladeTrail[bladeTrail.length - 2];
+            const p2 = bladeTrail[bladeTrail.length - 1];
+
+            fruits.forEach(fruit => {
+                if (fruit.sliced || !fruit.active) return;
+                const dist = distToSegment({x: fruit.x, y: fruit.y}, p1, p2);
+
+                if (dist < fruit.r) {
+                    fruit.sliced = true;
+                    fruit.active = false;
+
+                    if (fruit.type === 'bomb') {
+                        createExplosion(fruit.x, fruit.y, '#fff');
+                        endGame();
+                    } else if (fruit.type === 'heart') {
+                        score += 5;
+                        lives++;
+                        scoreEl.innerText = score;
+                        livesEl.innerText = lives;
+                        createExplosion(fruit.x, fruit.y, '#ff0000');
+                    } else {
+                        score += fruit.scoreValue;
+                        scoreEl.innerText = score;
+                        createExplosion(fruit.x, fruit.y, fruit.color);
+                    }
+                }
+            });
+        }
+
+        function resetGame() {
+            try {
+                // Reset state
+                score = 0;
+                lives = 3;
+                difficultyMultiplier = 0;
+                scoreEl.innerText = score;
+                livesEl.innerText = lives;
+                fruits = [];
+                particles = [];
+                bladeTrail = [];
+                
+                // Ensure canvas is sized correctly
+                resizeCanvas();
+
+                isPlaying = true;
+                gameOverScreen.classList.add('hidden');
+                startScreen.classList.add('hidden');
+                
+                // Spawn one immediately so user sees it works
+                spawnFruit();
+                
+                animate();
+            } catch (err) {
+                alert("Error starting game: " + err.message);
+            }
+        }
+
+        function animate() {
+            if (!isPlaying) return;
+
+            try {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Background
+                const gradient = ctx.createRadialGradient(canvas.width/2, canvas.height, 100, canvas.width/2, canvas.height/2, canvas.width);
+                gradient.addColorStop(0, '#2a2a2a');
+                gradient.addColorStop(1, '#000000');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0,0, canvas.width, canvas.height);
+
+                // Blade Logic
+                if (handDetected) {
+                    bladeTrail.push({x: handX, y: handY});
+                    if (bladeTrail.length > BLADE_LIFETIME) bladeTrail.shift();
+                }
+
+                if (bladeTrail.length > 1) {
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#00ffff';
+                    
+                    for (let i = 0; i < bladeTrail.length - 1; i++) {
+                        const point = bladeTrail[i];
+                        const nextPoint = bladeTrail[i+1];
+                        ctx.lineWidth = (i / bladeTrail.length) * 15;
+                        ctx.strokeStyle = `rgba(0, 255, 255, ${i / bladeTrail.length})`;
+                        ctx.beginPath();
+                        ctx.moveTo(point.x, point.y);
+                        ctx.lineTo(nextPoint.x, nextPoint.y);
+                        ctx.stroke();
+                    }
+                    ctx.shadowBlur = 0;
+                }
+
+                // Spawn Logic
+                gameTime++;
+                if (gameTime % Math.max(20, Math.floor(60 - difficultyMultiplier * 5)) === 0) {
+                    spawnFruit();
+                    if (difficultyMultiplier < 10) difficultyMultiplier += 0.05;
+                }
+
+                checkSlicing();
+
+                // Update Entities
+                for (let i = fruits.length - 1; i >= 0; i--) {
+                    const f = fruits[i];
+                    f.update();
+                    f.draw(ctx);
+                    if (!f.active) fruits.splice(i, 1);
+                }
+
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    p.update();
+                    p.draw(ctx);
+                    if (p.life <= 0) particles.splice(i, 1);
+                }
+
+                requestAnimationFrame(animate);
+            } catch (err) {
+                isPlaying = false;
+                alert("Game Crashed: " + err.message);
+                console.error(err);
+            }
+        }
+
+        // --- MediaPipe Setup ---
+        function onResults(results) {
+            if (startBtn.disabled) {
+                startBtn.disabled = false;
+                startBtn.innerText = "Start Game";
+                loadingSpinner.style.display = 'none';
+            }
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                handDetected = true;
+                const landmarks = results.multiHandLandmarks[0];
+                const indexTip = landmarks[8];
+                handX = (1 - indexTip.x) * canvas.width; 
+                handY = indexTip.y * canvas.height;
+            } else {
+                handDetected = false;
+                if (bladeTrail.length > 0) bladeTrail.shift(); 
+            }
+        }
+
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 320,
+            height: 240
+        });
+
+        camera.start()
+            .then(() => console.log("Camera started"))
+            .catch(err => {
+                console.error(err);
+                startBtn.innerText = "Camera Error";
+                alert("Camera access denied or error. Please refresh and allow camera.");
+            });
+
+        // --- Event Listeners ---
+        // Use pointerdown for faster mobile response than click
+        startBtn.addEventListener('pointerdown', (e) => {
+            e.preventDefault(); // prevent mouse emulation
+            resetGame();
+        });
+
+        restartBtn.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            resetGame();
+        });
+
+    </script>
+</body>
+</html>
