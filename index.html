@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Ninja - Selfie Cam Edition</title>
+    <title>Hand Ninja - Close-Range, Friendly Tracking</title>
 
     <!-- MediaPipe Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -162,6 +162,16 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        #statusText {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            font-size: 14px;
+            color: #aaa;
+            z-index: 15;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+        }
     </style>
 </head>
 <body>
@@ -177,14 +187,16 @@
         </div>
     </div>
 
+    <div id="statusText">Initializing camera…</div>
+
     <!-- Start Screen -->
     <div id="startScreen" class="screen">
         <h1>Hand Ninja</h1>
-        <p>Point your index finger to slice!</p>
+        <p>Hold your phone ~30–50 cm away.<br/>Show your whole hand in the camera.</p>
         <p>🍉 +1 Point | ❤️ +1 Life | 💣 Game Over</p>
         <div class="spinner" id="loadingSpinner"></div>
         <button id="startBtn" class="btn" disabled>Loading Camera...</button>
-        <p style="font-size: 14px; margin-top:20px; opacity:0.7">Allow camera access • Good lighting • Hold phone steady</p>
+        <p style="font-size: 14px; margin-top:20px; opacity:0.7">Allow camera • Good lighting • Steady hand</p>
     </div>
 
     <!-- Game Over Screen -->
@@ -198,6 +210,7 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d', { alpha: false });
         const videoElement = document.getElementById('inputVideo');
+        const statusText = document.getElementById('statusText');
 
         const startScreen = document.getElementById('startScreen');
         const gameOverScreen = document.getElementById('gameOverScreen');
@@ -223,7 +236,7 @@
         let handDetected = false;
 
         const GRAVITY = 0.25;
-        const BLADE_LIFETIME = 15; // a bit longer trail
+        const BLADE_LIFETIME = 20;
 
         const FRUIT_TYPES = [
             { emoji: '🍉', color: '#ff5555', score: 1 },
@@ -233,7 +246,6 @@
             { emoji: '🍍', color: '#ffffaa', score: 2 }
         ];
 
-        // Helpers
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -355,9 +367,8 @@
             gameOverScreen.classList.remove('hidden');
         }
 
-        // Distance from point p to line segment v-w
         function distToSegment(p, v, w) {
-            const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
+            const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
             if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
             let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
             t = Math.max(0, Math.min(1, t));
@@ -366,14 +377,17 @@
 
         function checkSlicing() {
             if (bladeTrail.length < 2 || !handDetected) return;
+
             const p1 = bladeTrail[bladeTrail.length - 2];
             const p2 = bladeTrail[bladeTrail.length - 1];
 
             fruits.forEach(fruit => {
                 if (fruit.sliced || !fruit.active) return;
-                const dist = distToSegment({x: fruit.x, y: fruit.y}, p1, p2);
 
-                if (dist < fruit.r) {
+                const dist = distToSegment({ x: fruit.x, y: fruit.y }, p1, p2);
+                const hitRadius = fruit.r * 1.5; // bigger hit box for easier slicing
+
+                if (dist < hitRadius) {
                     fruit.sliced = true;
                     fruit.active = false;
 
@@ -413,7 +427,6 @@
                 gameOverScreen.classList.add('hidden');
                 startScreen.classList.add('hidden');
 
-                // spawn one fruit immediately so you see something happening
                 spawnFruit();
 
                 animate();
@@ -441,7 +454,7 @@
 
                 // Blade trail
                 if (handDetected) {
-                    bladeTrail.push({x: handX, y: handY});
+                    bladeTrail.push({ x: handX, y: handY });
                     if (bladeTrail.length > BLADE_LIFETIME) {
                         bladeTrail.shift();
                     }
@@ -453,15 +466,35 @@
                     ctx.shadowBlur = 20;
                     ctx.shadowColor = '#00ffff';
 
+                    // Main bright core
                     for (let i = 0; i < bladeTrail.length - 1; i++) {
                         const point = bladeTrail[i];
                         const nextPoint = bladeTrail[i + 1];
                         const progress = i / bladeTrail.length;
 
-                        const lineWidth = 8 + 16 * progress; // thicker overall
+                        const lineWidth = 10 + 20 * progress;
                         ctx.lineWidth = lineWidth;
+                        ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + 0.5 * progress})`;
 
-                        ctx.strokeStyle = `rgba(0, 255, 255, ${0.4 + 0.6 * progress})`;
+                        ctx.beginPath();
+                        ctx.moveTo(point.x, point.y);
+                        ctx.lineTo(nextPoint.x, nextPoint.y);
+                        ctx.stroke();
+                    }
+
+                    // Outer glow “ghost”
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#0088ff';
+
+                    for (let i = 0; i < bladeTrail.length - 1; i++) {
+                        const point = bladeTrail[i];
+                        const nextPoint = bladeTrail[i + 1];
+                        const progress = i / bladeTrail.length;
+
+                        const lineWidth = 16 + 24 * progress;
+                        ctx.lineWidth = lineWidth;
+                        ctx.strokeStyle = `rgba(0, 136, 255, ${0.25 + 0.25 * progress})`;
+
                         ctx.beginPath();
                         ctx.moveTo(point.x, point.y);
                         ctx.lineTo(nextPoint.x, nextPoint.y);
@@ -471,7 +504,7 @@
                     ctx.shadowBlur = 0;
                 }
 
-                // Debug circle: always show where we think the index finger tip is
+                // Debug circle at fingertip
                 if (handDetected) {
                     ctx.beginPath();
                     ctx.arc(handX, handY, 12, 0, Math.PI * 2);
@@ -515,10 +548,7 @@
             }
         }
 
-        // MediaPipe setup
-        let videoWidth = 640;
-        let videoHeight = 480;
-
+        // MediaPipe Hands setup
         function onResults(results) {
             if (startBtn.disabled) {
                 startBtn.disabled = false;
@@ -529,60 +559,63 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 handDetected = true;
                 const landmarks = results.multiHandLandmarks[0];
-                const indexTip = landmarks[8]; // confirmed index fingertip【turn1search1】
+                const indexTip = landmarks[8]; // index fingertip【turn3fetch0】
 
-                // Update stored video size from results if needed
-                if (results.image) {
-                    videoWidth = results.image.width || videoWidth;
-                    videoHeight = results.image.height || videoHeight;
-                }
-
-                // Mirror X for front camera feel
+                // Mirror X for selfie camera feel
                 const nx = 1 - indexTip.x;
                 const ny = indexTip.y;
 
                 handX = nx * canvas.width;
                 handY = ny * canvas.height;
+                statusText.innerText = "Hand detected";
             } else {
                 handDetected = false;
                 if (bladeTrail.length > 0) bladeTrail.shift();
+                statusText.innerText = "No hand";
             }
         }
 
-        const hands = new Hands({locateFile: (file) => {
+        const hands = new Hands({ locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }});
+        } });
 
         hands.setOptions({
             maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
+            modelComplexity: 0, // lighter model for mobile【turn3fetch0】
+            minDetectionConfidence: 0.4, // more forgiving than default 0.5
+            minTrackingConfidence: 0.4
         });
 
         hands.onResults(onResults);
 
-        // Force selfie/front camera, small resolution
+        // Camera setup using MediaPipe camera_utils
+        // According to MediaPipe examples, Camera constructor supports:
+        // - facingMode: 'user' to request front camera
+        // - width / height for resolution【turn13fetch0】
         const camera = new Camera(videoElement, {
             onFrame: async () => {
-                await hands.send({image: videoElement});
+                await hands.send({ image: videoElement });
             },
-            width: 640,
-            height: 480
+            facingMode: 'user', // selfie/front camera
+            width: 480,
+            height: 360
         });
 
         camera.start()
-            .then(() => console.log("Camera started"))
+            .then(() => {
+                console.log("Camera started");
+                statusText.innerText = "Camera started";
+            })
             .catch(err => {
                 console.error(err);
                 startBtn.innerText = "Camera Error";
+                statusText.innerText = "Camera error: " + err.message;
                 alert(
                     "Camera error:\n" + err.name + "\n" + err.message +
                     "\n\nMake sure you are using HTTPS and allow camera."
                 );
             });
 
-        // Event listeners
         startBtn.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             resetGame();
